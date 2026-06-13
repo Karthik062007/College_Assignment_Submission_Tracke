@@ -182,3 +182,38 @@
     border-right-color: var(--border);
   }
 }
+
+/* Assignment sentence style and status colors */
+.assignment-sentence {
+  font-size: 16px;
+  color: var(--text-h, #2c3e50);
+  margin: 8px 0;
+}
+
+.assignment-sentence .status {
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 999px;
+  margin-left: 6px;
+  color: white;
+}
+
+.status-submitted {
+  background: #27ae60;
+}
+
+.status-pending {
+  background: #f39c12;
+}
+
+.status-late {
+  background: #e74c3c;
+}
+
+.assignment-card {
+  background: white;
+  padding: 15px;
+  margin-top: 15px;
+  border-radius: 8px;
+  box-shadow: 0 0 5px lightgray;
+}
