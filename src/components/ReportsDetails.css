@@ -1,0 +1,25 @@
+.reports-grid {
+  display: grid;
+  grid-template-columns: 1fr 320px;
+  gap: 18px;
+}
+
+.report-card {
+  padding: 12px;
+}
+
+.bar-chart {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
+.students-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+}
+
+.student-card {
+  padding: 10px;
+}

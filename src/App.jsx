@@ -1,307 +1,269 @@
-import React, { useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
+import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
+import { ToastContainer, toast } from "react-toastify";
+import {
+  Chart as ChartJS,
+  ArcElement,
+  BarElement,
+  CategoryScale,
+  LinearScale,
+  LineElement,
+  PointElement,
+  Tooltip,
+  Legend,
+  Title,
+} from "chart.js";
+import "react-toastify/dist/ReactToastify.css";
+import "./App.css";
+import MenuBar from "./components/MenuBar";
+import DashboardPage from "./components/DashboardPage";
+import AssignmentsPage from "./components/AssignmentsPage";
+import StudentsPage from "./components/StudentsPage";
+import ReportsDetails from "./components/ReportsDetails";
+import AssignmentModal from "./components/AssignmentModal";
+
+ChartJS.register(
+  ArcElement,
+  BarElement,
+  CategoryScale,
+  LinearScale,
+  LineElement,
+  PointElement,
+  Tooltip,
+  Legend,
+  Title
+);
+
+const STORAGE_KEY = "submissionTracker.assignments";
+const THEME_KEY = "submissionTracker.theme";
+
+const parseLocalDate = (value) => {
+  if (!value) return null;
+  const parts = value.split("-").map(Number);
+  if (parts.length !== 3) return null;
+  return new Date(parts[0], parts[1] - 1, parts[2], 23, 59, 59);
+};
+
+const formatDateForInput = (date) => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+};
+
+const getDaysUntil = (value) => {
+  const due = parseLocalDate(value);
+  if (!due) return 0;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const dueMidnight = new Date(due.getFullYear(), due.getMonth(), due.getDate(), 0, 0, 0);
+  return Math.round((dueMidnight - today) / (1000 * 60 * 60 * 24));
+};
+
+const normalizeAssignment = (assignment) => ({
+  ...assignment,
+  priority: assignment.priority || "Medium",
+  notes: assignment.notes || "",
+  attachments: assignment.attachments || [],
+  status: assignment.status || "Pending",
+  createdAt: assignment.createdAt || Date.now(),
+});
 
 function App() {
-  const [students, setStudents] = useState([]);
   const [assignments, setAssignments] = useState([]);
-  const [title, setTitle] = useState("");
-  const [subject, setSubject] = useState("");
-  const [dueDate, setDueDate] = useState("");
-  const [studentName, setStudentName] = useState("");
-  const [filter, setFilter] = useState("All");
+  const [theme, setTheme] = useState("dark");
+  const [selectedAssignment, setSelectedAssignment] = useState(null);
 
-  const addAssignment = () => {
-    if (!studentName || !title || !subject || !dueDate) {
-      alert("Please fill all fields");
-      return;
+  useEffect(() => {
+    const savedAssignments = localStorage.getItem(STORAGE_KEY);
+    const savedTheme = localStorage.getItem(THEME_KEY);
+
+    if (savedAssignments) {
+      try {
+        const parsed = JSON.parse(savedAssignments);
+        if (Array.isArray(parsed)) {
+          setAssignments(parsed.map(normalizeAssignment));
+        }
+      } catch (error) {
+        console.warn("Unable to parse saved assignments", error);
+      }
     }
 
-    const today = new Date();
-    const due = new Date(dueDate);
-
-    let status = "Pending";
-
-    if (due < today) {
-      status = "Late";
+    if (savedTheme === "dark" || savedTheme === "light") {
+      setTheme(savedTheme);
     }
+  }, []);
 
-    const newAssignment = {
-      id: Date.now(),
-      title,
-      student: studentName,
-      subject,
-      dueDate,
-      status,
-    };
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(assignments));
+  }, [assignments]);
 
-    setAssignments([...assignments, newAssignment]);
-    // Add to students list if not already present
-    setStudents((prev) =>
-      prev.includes(studentName) ? prev : [...prev, studentName]
-    );
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    localStorage.setItem(THEME_KEY, theme);
+  }, [theme]);
 
-    setTitle("");
-    setSubject("");
-    setDueDate("");
-    setStudentName("");
+  useEffect(() => {
+    const now = new Date();
+    now.setHours(0, 0, 0, 0);
+
+    let updated = false;
+    const nextAssignments = assignments.map((assignment) => {
+      const due = parseLocalDate(assignment.dueDate);
+      if (!due) return assignment;
+      const isPastDue = due < now;
+      if (assignment.status !== "Submitted" && assignment.status !== "Late" && isPastDue) {
+        updated = true;
+        return { ...assignment, status: "Late" };
+      }
+      return assignment;
+    });
+
+    if (updated) {
+      setAssignments(nextAssignments);
+    }
+  }, [assignments]);
+
+  const addAssignment = (assignment) => {
+    const newAssign = normalizeAssignment(assignment);
+    setAssignments((current) => [newAssign, ...current]);
+    // Show toast notification on next tick to avoid React errors
+    setTimeout(() => {
+      try {
+        if (typeof toast === 'object' && toast.success) {
+          toast.success("Assignment added successfully.");
+        }
+      } catch (e) {
+        console.log("Toast notification skipped");
+      }
+    }, 0);
   };
 
-  // helper to format Date -> yyyy-mm-dd for input[type=date]
-  const formatDateForInput = (d) => {
-    const year = d.getFullYear();
-    const month = String(d.getMonth() + 1).padStart(2, "0");
-    const day = String(d.getDate()).padStart(2, "0");
-    return `${year}-${month}-${day}`;
-  };
-
-  // set due date to one month from today
-  const setDueInOneMonth = () => {
-    const today = new Date();
-    const nextMonth = new Date(
-      today.getFullYear(),
-      today.getMonth() + 1,
-      today.getDate()
-    );
-    setDueDate(formatDateForInput(nextMonth));
-  };
-
-  const markSubmitted = (id) => {
-    setAssignments(
-      assignments.map((a) =>
-        a.id === id ? { ...a, status: "Submitted" } : a
+  const updateStatus = (id, status) => {
+    setAssignments((current) =>
+      current.map((assignment) =>
+        assignment.id === id ? { ...assignment, status } : assignment
       )
     );
-  };
-
-  const markPending = (id) => {
-    setAssignments(
-      assignments.map((a) => (a.id === id ? { ...a, status: "Pending" } : a))
-    );
-  };
-
-  const markLate = (id) => {
-    setAssignments(
-      assignments.map((a) => (a.id === id ? { ...a, status: "Late" } : a))
+    setTimeout(() => {
+      try {
+        if (typeof toast === 'object' && toast.info) {
+          toast.info(`Assignment marked ${status.toLowerCase()}.`);
+        }
+      } catch (e) {
+        console.log("Toast notification skipped");
+      }
+    }, 0);
+    setSelectedAssignment((current) =>
+      current && current.id === id ? { ...current, status } : current
     );
   };
 
   const deleteAssignment = (id) => {
-    setAssignments(assignments.filter((a) => a.id !== id));
+    setAssignments((current) => current.filter((assignment) => assignment.id !== id));
+    setTimeout(() => {
+      try {
+        if (typeof toast === 'object' && toast.warn) {
+          toast.warn("Assignment deleted.");
+        }
+      } catch (e) {
+        console.log("Toast notification skipped");
+      }
+    }, 0);
+    if (selectedAssignment?.id === id) {
+      setSelectedAssignment(null);
+    }
   };
 
-  const filteredAssignments =
-    filter === "All"
-      ? assignments
-      : assignments.filter((a) => a.subject === filter);
+  const openAssignment = (assignment) => setSelectedAssignment(assignment);
+  const closeAssignment = () => setSelectedAssignment(null);
+  const toggleTheme = () => setTheme((current) => (current === "dark" ? "light" : "dark"));
 
-  // counts per subject for filter display
-  const subjectCounts = assignments.reduce((acc, a) => {
-    if (!a.subject) return acc;
-    acc[a.subject] = (acc[a.subject] || 0) + 1;
-    return acc;
-  }, {});
+  const subjectCounts = useMemo(
+    () =>
+      assignments.reduce((acc, assignment) => {
+        const key = assignment.subject || "Unknown";
+        acc[key] = (acc[key] || 0) + 1;
+        return acc;
+      }, {}),
+    [assignments]
+  );
 
-  const submittedCount = assignments.filter(
-    (a) => a.status === "Submitted"
-  ).length;
+  const statusCounts = useMemo(
+    () =>
+      assignments.reduce(
+        (acc, assignment) => {
+          acc[assignment.status] = (acc[assignment.status] || 0) + 1;
+          return acc;
+        },
+        { Submitted: 0, Pending: 0, Late: 0 }
+      ),
+    [assignments]
+  );
 
-  const pendingCount = assignments.filter(
-    (a) => a.status === "Pending"
-  ).length;
-
-  const lateCount = assignments.filter(
-    (a) => a.status === "Late"
-  ).length;
+  const totalAssignments = assignments.length;
+  const completionRate = totalAssignments
+    ? Math.round((statusCounts.Submitted / totalAssignments) * 100)
+    : 0;
 
   return (
-    <div
-      style={{
-        backgroundColor: "#f4f6f9",
-        minHeight: "100vh",
-        padding: "20px",
-        fontFamily: "Arial",
-      }}
-    >
-      <h1 style={{ textAlign: "center", color: "#2c3e50" }}>
-        College Assignment Submission Tracker
-      </h1>
+    <BrowserRouter>
+      <div className="app-shell">
+        <MenuBar theme={theme} />
 
-      {/* Dashboard */}
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "center",
-          gap: "15px",
-          margin: "20px 0",
-        }}
-      >
-        <div
-          style={{
-            backgroundColor: "#27ae60",
-            color: "white",
-            padding: "20px",
-            borderRadius: "10px",
-            width: "180px",
-            textAlign: "center",
-          }}
-        >
-          <h2>{submittedCount}</h2>
-          <p>Submitted</p>
-        </div>
+        <main className="content-shell">
+          <header className="app-header">
+            <div>
+              <p className="eyebrow">College Assignment Submission Tracker</p>
+              <h1>Modern student assignment dashboard</h1>
+              <p className="header-description">
+                Track deadlines, files, student progress, and submission health from one unified dashboard.
+              </p>
+            </div>
+            <button className="theme-toggle" type="button" onClick={toggleTheme}>
+              {theme === "dark" ? "Switch to Light" : "Switch to Dark"}
+            </button>
+          </header>
 
-        <div
-          style={{
-            backgroundColor: "#f39c12",
-            color: "white",
-            padding: "20px",
-            borderRadius: "10px",
-            width: "180px",
-            textAlign: "center",
-          }}
-        >
-          <h2>{pendingCount}</h2>
-          <p>Pending</p>
-        </div>
+          <Routes>
+            <Route path="/" element={<Navigate replace to="/dashboard" />} />
+            <Route path="/dashboard" element={<DashboardPage assignments={assignments} />} />
+            <Route
+              path="/assignments"
+              element={
+                <AssignmentsPage
+                  assignments={assignments}
+                  onCreate={addAssignment}
+                  onUpdateStatus={updateStatus}
+                  onDelete={deleteAssignment}
+                  onOpenDetail={openAssignment}
+                />
+              }
+            />
+            <Route path="/students" element={<StudentsPage assignments={assignments} />} />
+            <Route path="/reports" element={<ReportsDetails assignments={assignments} />} />
+            <Route path="*" element={<Navigate replace to="/dashboard" />} />
+          </Routes>
+        </main>
 
-        <div
-          style={{
-            backgroundColor: "#e74c3c",
-            color: "white",
-            padding: "20px",
-            borderRadius: "10px",
-            width: "180px",
-            textAlign: "center",
-          }}
-        >
-          <h2>{lateCount}</h2>
-          <p>Late</p>
-        </div>
+        <AssignmentModal
+          assignment={selectedAssignment}
+          onClose={closeAssignment}
+          onUpdateStatus={updateStatus}
+          onDelete={deleteAssignment}
+        />
+
+        <ToastContainer
+          position="top-right"
+          autoClose={2700}
+          hideProgressBar={false}
+          newestOnTop
+          closeOnClick
+          pauseOnHover
+          theme={theme === "dark" ? "dark" : "light"}
+        />
       </div>
-
-      {/* Add Assignment */}
-      <div
-        style={{
-          backgroundColor: "white",
-          padding: "20px",
-          borderRadius: "10px",
-          boxShadow: "0 0 10px lightgray",
-          marginBottom: "20px",
-        }}
-      >
-        <h2>Add Assignment</h2>
-
-        <input
-          type="text"
-          placeholder="Student Name"
-          value={studentName}
-          onChange={(e) => setStudentName(e.target.value)}
-          style={{ padding: "10px", margin: "5px" }}
-        />
-
-        <input
-          type="text"
-          placeholder="Assignment Title"
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-          style={{ padding: "10px", margin: "5px" }}
-        />
-
-        <input
-          type="text"
-          placeholder="Subject"
-          value={subject}
-          onChange={(e) => setSubject(e.target.value)}
-          style={{ padding: "10px", margin: "5px" }}
-        />
-
-        <input
-          type="date"
-          value={dueDate}
-          onChange={(e) => setDueDate(e.target.value)}
-          style={{ padding: "10px", margin: "5px" }}
-        />
-
-        <button
-          onClick={setDueInOneMonth}
-          style={{
-            backgroundColor: "#8e44ad",
-            color: "white",
-            border: "none",
-            padding: "10px 12px",
-            borderRadius: "5px",
-            margin: "5px",
-            cursor: "pointer",
-          }}
-        >
-          Set Due +1 month
-        </button>
-
-        <button
-          onClick={addAssignment}
-          style={{
-            backgroundColor: "#3498db",
-            color: "white",
-            border: "none",
-            padding: "10px 15px",
-            borderRadius: "5px",
-            cursor: "pointer",
-          }}
-        >
-          Add Assignment
-        </button>
-      </div>
-
-      {/* Filter */}
-      <h3>Filter By Subject ({filteredAssignments.length})</h3>
-
-      <select
-        value={filter}
-        onChange={(e) => setFilter(e.target.value)}
-        style={{ padding: "10px" }}
-      >
-        <option key="All" value="All">
-          All ({assignments.length})
-        </option>
-        {Object.keys(subjectCounts).map((sub) => (
-          <option key={sub} value={sub}>
-            {sub} ({subjectCounts[sub]})
-          </option>
-        ))}
-      </select>
-
-      {/* Assignment List */}
-      {filteredAssignments.map((a) => (
-        <div key={a.id} className="assignment-card">
-          <p className="assignment-sentence">
-            {a.title} — {a.student} ({a.subject}) is due on {a.dueDate}.
-            <span
-              className={`status ${
-                a.status ? `status-${a.status.toLowerCase()}` : ""
-              }`}
-            >
-              {a.status}
-            </span>
-          </p>
-
-          <div>
-            <button onClick={() => markSubmitted(a.id)} style={{backgroundColor: "#27ae60", color: "white", border: "none", padding: "8px 12px", borderRadius: "5px", marginRight: "10px", cursor: "pointer"}}>
-              Mark Submitted
-            </button>
-
-            <button onClick={() => markPending(a.id)} style={{backgroundColor: "#f39c12", color: "white", border: "none", padding: "8px 12px", borderRadius: "5px", marginRight: "10px", cursor: "pointer"}}>
-              Mark Pending
-            </button>
-
-            <button onClick={() => markLate(a.id)} style={{backgroundColor: "#e74c3c", color: "white", border: "none", padding: "8px 12px", borderRadius: "5px", marginRight: "10px", cursor: "pointer"}}>
-              Mark Late
-            </button>
-
-            <button onClick={() => deleteAssignment(a.id)} style={{backgroundColor: "#e74c3c", color: "white", border: "none", padding: "8px 12px", borderRadius: "5px", cursor: "pointer"}}>
-              Delete
-            </button>
-          </div>
-        </div>
-      ))}
-    </div>
+    </BrowserRouter>
   );
 }
 
